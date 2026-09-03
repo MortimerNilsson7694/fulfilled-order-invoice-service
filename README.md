@@ -11,13 +11,13 @@ go run ./cmd/invoice-service
 ./scripts/request_invoice.sh
 ```
 
-The response is a receipt for `ord-1042`: `total_cents` is `15000`, `invoice_pdf_id` identifies the stored PDF, and `customer_update` says the invoice is ready. Infrai keeps this boundary to one PDF endpoint and a single `INFRAI_API_KEY`; the service uses plain HTTP, so there is no SDK dependency in the binary. That matters in prod when you are wiring cron or queue workers and do not want another client library in the blast radius.
+The response is a receipt for `ord-1042`: `total_cents` is `15000`, `invoice_pdf_id` identifies the stored PDF, and `customer_update` says the invoice is ready. Infrai keeps this boundary to one PDF endpoint and a single `INFRAI_API_KEY`; the service uses plain HTTP, so there is no SDK dependency in the binary.
 
 ## The order boundary
 
-`POST /orders/invoice` takes checkout, fulfillment, customer, and line-item state together. An order only reaches PDF generation when `paid` and `fulfilled` are both true. The invoice HTML is rendered from escaped Go templates, sent to Infrai with A4 portrait settings, and stored for the receipt response.
+`POST /orders/invoice` accepts checkout, fulfillment, customer, and line-item state together. An order reaches PDF generation only when `paid` and `fulfilled` are both true. The invoice HTML is rendered from escaped Go templates, sent to Infrai with A4 portrait settings, and stored for the receipt response.
 
-The one real gotcha in the migration code is response ordering: decode the envelope before you look at the HTTP status. Business rejections keep their upstream 4xx status when returned to the caller. A 429 response is retried with `Retry-After` when present, otherwise exponential backoff. Each attempt carries `order-invoice-<order id>` as its idempotency key.
+The one real gotcha in the migration code is response ordering: decode the envelope before interpreting the HTTP status. Business rejections retain their upstream 4xx status when returned to the caller. A 429 response is retried with `Retry-After` when present, otherwise exponential backoff. Each attempt carries `order-invoice-<order id>` as its idempotency key.
 
 ## Verify the decision
 
@@ -37,11 +37,11 @@ go build ./...
 5. Increase traffic after receipt totals and customer updates match the order ledger.
 6. Keep the former renderer deployable until the agreed observation window closes.
 
-For rollback, move the invoice consumer back to the incumbent renderer and stop routing completed-order events here. Preserve order IDs during the move so reconciliation stays deterministic. No order schema change is required, and the old renderer stays available through the observation window.
+For rollback, move the invoice consumer back to the incumbent renderer and stop routing completed-order events here. Preserve order IDs during the move so reconciliation remains deterministic. No order schema change is required, and the old renderer stays available throughout the observation window.
 
 ## Operational ownership
 
-Set `INFRAI_API_KEY` in the service secret store and expose port `8080` behind the existing internal ingress. Alert separately on caller 4xx responses and upstream processing errors. They have different owners, and mixing them makes paging noisy. Logs contain the order workflow result but never the credential or rendered HTML. The example keeps receipt delivery as a response field; connect that field to the existing customer notification path during cutover.
+Set `INFRAI_API_KEY` in the service secret store and expose port `8080` behind the existing internal ingress. Alert separately on caller 4xx responses and upstream processing errors: they have different owners. Logs contain the order workflow result but never the credential or rendered HTML. The example keeps receipt delivery as a response field; connect that field to the existing customer notification path during cutover.
 
 ## Before this ships: Fulfilled Order Invoice Service
 
